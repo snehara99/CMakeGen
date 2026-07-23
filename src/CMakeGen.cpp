@@ -7,9 +7,9 @@
 #include <sstream>
 #include <fstream>
 
-// C++17 filesystem
+// C++17 "Filesystem TS"
 #include <filesystem>
-using std::filesystem::recursive_directory_iterator;
+using std::experimental::filesystem::recursive_directory_iterator;
 
 std::map<std::string, std::vector<std::string>> CMakeGen::sources{};
 std::map<std::string, std::string> CMakeGen::VSFilterGroups{};
