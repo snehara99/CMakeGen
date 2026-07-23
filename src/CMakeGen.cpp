@@ -1,57 +1,83 @@
 #include "StdAfx.h"
 #include "CMakeGen.h"
 
+#include <algorithm>
 #include <iomanip>
 #include <iostream>
 #include <ctime>
 #include <sstream>
 #include <fstream>
 
-// C++17 "Filesystem TS"
 #include <filesystem>
-using std::experimental::filesystem::recursive_directory_iterator;
+
+namespace
+{
+	struct SourceFile
+	{
+		std::string directory;
+		std::string name;
+	};
+
+	void FindSourceFiles(const std::string& directory, std::vector<SourceFile>& sourceFiles)
+	{
+		WIN32_FIND_DATAA findData{};
+		HANDLE findHandle = FindFirstFileA((directory + "\\*").c_str(), &findData);
+		if (findHandle == INVALID_HANDLE_VALUE)
+			return;
+
+		do
+		{
+			std::string fileName = findData.cFileName;
+			if (fileName == "." || fileName == "..")
+				continue;
+
+			if ((findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0)
+			{
+				if ((findData.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) == 0)
+					FindSourceFiles(directory + "\\" + fileName, sourceFiles);
+			}
+			else if ((fileName.length() >= 2 && fileName.compare(fileName.length() - 2, 2, ".h") == 0)
+				|| (fileName.length() >= 4 && fileName.compare(fileName.length() - 4, 4, ".cpp") == 0))
+			{
+				sourceFiles.push_back({ directory, fileName });
+			}
+		} while (FindNextFileA(findHandle, &findData));
+
+		FindClose(findHandle);
+	}
+}
 
 std::map<std::string, std::vector<std::string>> CMakeGen::sources{};
 std::map<std::string, std::string> CMakeGen::VSFilterGroups{};
 
 void CMakeGen::GenerateCMakeList(std::string source_dir)
 {
-	// recurse source_dir for source files
-	for (auto& dirEntry : recursive_directory_iterator(source_dir))
+	std::vector<SourceFile> sourceFiles;
+	FindSourceFiles(source_dir, sourceFiles);
+
+	for (const auto& sourceFile : sourceFiles)
 	{
-		// Only source files
-		if (dirEntry.path().filename().extension() == ".h"
-			|| dirEntry.path().filename().extension() == ".cpp")
-		{
-			// Get just the path, no filename
-			auto path = dirEntry.path();
-			path.remove_filename();
-			auto fullPath = path.string();
+		std::string fullPath = sourceFile.directory;
+		std::string fileName = sourceFile.name;
+		std::string relativePath = (fullPath == source_dir) ? "" : fullPath.substr(source_dir.length() + 1, fullPath.length() - source_dir.length());
+		std::string VSFilter = (relativePath.empty())? "Main" : relativePath;
+		std::string SourceGroupName((relativePath != "")? relativePath : "Main");
+		SourceGroupName.erase(std::remove(SourceGroupName.begin(), SourceGroupName.end(), '\\'), SourceGroupName.end());
 
-			// Get the information we need
-			std::string fileName = dirEntry.path().filename().string();
-			std::string relativePath = (fullPath == source_dir) ? "" : fullPath.substr(source_dir.length() + 1, fullPath.length() - source_dir.length());
-			std::string VSFilter = (relativePath.empty())? "Main" : relativePath;
-			std::string SourceGroupName((relativePath != "")? relativePath : "Main");
-			SourceGroupName.erase(std::remove(SourceGroupName.begin(), SourceGroupName.end(), '\\'), SourceGroupName.end());
+		//Adds double backslash to source group text in order to clean up visual studio internal filters
+		auto it = std::find(VSFilter.begin(), VSFilter.end(), '\\');
+		while (it != VSFilter.end()) {
+			auto it2 = VSFilter.insert(it, '\\');
 
-			
-			
-			//Adds double backslash to source group text in order to clean up visual studio internal filters
-			auto it = std::find(VSFilter.begin(), VSFilter.end(), '\\');
-			while (it != VSFilter.end()) {
-				auto it2 = VSFilter.insert(it, '\\');
-
-				it = std::find(it2 + 2, VSFilter.end(), '\\');
-			}
-
-			if (VSFilterGroups.count(SourceGroupName) == 0)
-				VSFilterGroups[SourceGroupName] = VSFilter;
-
-			// Add this source file to the source group array
-			std::replace(relativePath.begin(), relativePath.end(), '\\', '/');
-			sources[SourceGroupName].emplace_back(relativePath + ((relativePath.length() > 0) ? "/" : "") + fileName);
+			it = std::find(it2 + 2, VSFilter.end(), '\\');
 		}
+
+		if (VSFilterGroups.count(SourceGroupName) == 0)
+			VSFilterGroups[SourceGroupName] = VSFilter;
+
+		// Add this source file to the source group array
+		std::replace(relativePath.begin(), relativePath.end(), '\\', '/');
+		sources[SourceGroupName].emplace_back(relativePath + ((relativePath.length() > 0) ? "/" : "") + fileName);
 	}
 
 	// Now we can traverse our array and build our sources more easily

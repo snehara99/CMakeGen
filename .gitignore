@@ -11,3 +11,6 @@ Solution/Debug/*
 Solution/Release/*
 Solution/x64/*
 Solution/x86/*
+/.vs
+/Solution/CMakeGen/x64
+/bin/win_x64_release/cmakegen.exe
